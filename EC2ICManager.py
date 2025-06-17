@@ -17,7 +17,7 @@ from pathlib import Path
 import platform
 
 # Append AWS CLI path to environment
-os.environ["PATH"] += os.pathsep + "/usr/local/bin" + os.pathsep + "/opt/homebrew/bin/" + os.pathsep + "/opt/homebrew/bin/granted"
+os.environ["PATH"] += os.pathsep + "/usr/local/bin" + os.pathsep + "/opt/homebrew/bin/"
 
 class AwsRdpConnect:
     def __init__(self, root):
@@ -30,7 +30,6 @@ class AwsRdpConnect:
         self.ec2_instances = []
         self.current_profile = None
         self.tunnel_process = None
-        self.granted_var = tk.BooleanVar(value=False) # Variable for the "Granted" checkbox
         self.config_dir = os.path.join(str(Path.home()), ".aws_rdp_connect")
         self.config_file = os.path.join(self.config_dir, "config.json")
         self.settings = {
@@ -65,10 +64,6 @@ class AwsRdpConnect:
         # Login button
         self.login_button = ttk.Button(self.controls_frame, text="Login", command=self.aws_sso_login)
         self.login_button.grid(row=0, column=3, padx=5, pady=5)
-
-        # Granted checkbox
-        self.granted_checkbox = ttk.Checkbutton(self.controls_frame, text="Granted", variable=self.granted_var, command=self.refresh_profiles)
-        self.granted_checkbox.grid(row=0, column=4, padx=5, pady=5)
 
         # Instances frame
         self.instances_frame = ttk.LabelFrame(self.main_frame, text="EC2 Instances", padding="10")
@@ -178,10 +173,9 @@ class AwsRdpConnect:
                     pass
 
     def refresh_profiles(self):
-        """Refresh the AWS profiles based on whether 'Granted' mode is selected."""
+        """Refresh the AWS profiles."""
         self.aws_profiles = []
         self.status_var.set("Loading AWS profiles...")
-        is_granted_mode = self.granted_var.get()
 
         try:
             # Load AWS config
@@ -194,15 +188,7 @@ class AwsRdpConnect:
                 for section in aws_config.sections():
                     if section.startswith("profile "):
                         profile_name = section[8:]  # Remove "profile " prefix
-
-                        if is_granted_mode:
-                            # If in Granted mode, only add profiles that are structured for Granted.
-                            # We check for a key unique to Granted's configuration.
-                            if aws_config.has_option(section, 'granted_sso_start_url'):
-                                self.aws_profiles.append(profile_name)
-                        else:
-                            # If not in Granted mode, behave as the original script did: add all profiles.
-                            self.aws_profiles.append(profile_name)
+                        self.aws_profiles.append(profile_name)
 
             self.profile_combo['values'] = self.aws_profiles
 
@@ -216,7 +202,7 @@ class AwsRdpConnect:
             else:
                 self.current_profile = None
                 self.profile_var.set("")
-                mode_text = "Granted" if is_granted_mode else "standard"
+                mode_text = "standard"
                 self.status_var.set(f"No {mode_text} AWS profiles found. Check your AWS CLI configuration.")
         except Exception as e:
             self.status_var.set(f"Error loading profiles: {str(e)}")
@@ -229,42 +215,34 @@ class AwsRdpConnect:
         self.status_var.set(f"Selected profile: {self.current_profile}")
 
     def aws_sso_login(self):
-        """Perform AWS SSO login or Granted role assumption."""
+        """Perform AWS SSO login."""
         if not self.current_profile:
             messagebox.showwarning("Warning", "Please select an AWS profile first")
             return
 
-        is_granted_mode = self.granted_var.get()
-        cli_tool = "Granted" if is_granted_mode else "AWS SSO"
+        cli_tool = "AWS SSO"
         self.status_var.set(f"Logging in with {cli_tool} using profile {self.current_profile}...")
         self.login_button.configure(state="disabled")
 
         def login_thread():
             command = []
-            if is_granted_mode:
-                command = ["assume", self.current_profile, "--exec", "--", "aws", "sts", "get-caller-identity"]
-            else:
-                command = ["aws", "sso", "login", "--profile", self.current_profile]
+            command = ["aws", "sso", "login", "--profile", self.current_profile]
             
-            cli_name_for_error = "Granted CLI" if is_granted_mode else "AWS CLI"
-
-            env = os.environ.copy()
-            env["GRANTED_NO_AUTO_ALIAS"] = "true"
+            cli_name_for_error = "AWS CLI"
 
             try:
-                subprocess.Popen(command, env=env)
-                # result = subprocess.run(
-                #     command,
-                #     stdout=subprocess.PIPE,
-                #     stderr=subprocess.PIPE,
-                #     universal_newlines=True
-                # )
+                result = subprocess.run(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True
+                )
 
-                # if result.returncode == 0:
-                #     self.root.after(0, lambda: self.status_var.set(f"{cli_tool} login successful"))
-                # else:
-                #     self.root.after(0, lambda: self.status_var.set(f"{cli_tool} login failed: {result.stderr.strip()}"))
-                #     self.root.after(0, lambda: messagebox.showerror("Login Failed", result.stderr.strip()))
+                if result.returncode == 0:
+                    self.root.after(0, lambda: self.status_var.set(f"{cli_tool} login successful"))
+                else:
+                    self.root.after(0, lambda: self.status_var.set(f"{cli_tool} login failed: {result.stderr.strip()}"))
+                    self.root.after(0, lambda: messagebox.showerror("Login Failed", result.stderr.strip()))
             except FileNotFoundError:
                 self.root.after(0, lambda: self.status_var.set(f"{cli_name_for_error} not found. Please ensure it's installed and in your PATH."))
                 self.root.after(0, lambda: messagebox.showerror("Error", f"{cli_name_for_error} not found. Please ensure it's installed and in your PATH."))
@@ -289,20 +267,14 @@ class AwsRdpConnect:
         # Clear existing data
         for item in self.tree.get_children():
             self.tree.delete(item)
-        
-        is_granted_mode = self.granted_var.get()
 
         def load_thread():
             command = []
-            # if is_granted_mode:
-            #     # Use 'granted exec' to run the aws command with the assumed role
-            #     command = ["granted", "exec", "--profile", self.current_profile, "--", "aws", "ec2", "describe-instances"]
-            # else:
-            #     command = ["aws", "ec2", "describe-instances", "--profile", self.current_profile]
+            command = ["aws", "ec2", "describe-instances", "--profile", self.current_profile]
 
-            command = ["aws", "ec2", "describe-instances", "--region", "us-east-2", "--profile", self.current_profile]
+            # command = ["aws", "ec2", "describe-instances", "--region", "us-east-2", "--profile", self.current_profile]
             
-            cli_name_for_error = "Granted CLI or AWS CLI" if is_granted_mode else "AWS CLI"
+            cli_name_for_error = "AWS CLI"
 
             try:
                 result = subprocess.run(
@@ -505,37 +477,28 @@ class AwsRdpConnect:
 
     def setup_and_connect(self, instance_id, local_port, profile_to_use):
         """Set up the tunnel and launch RDP client using the specified profile"""
-        is_granted_mode = self.granted_var.get()
         try:
             # Set up the tunnel
             self.root.after(0, lambda: self.status_var.set(f"Setting up tunnel to {instance_id} on port {local_port} using profile {profile_to_use}..."))
 
             command = []
-            # if is_granted_mode:
-            #     command = [
-            #         "granted", "exec", "--profile", profile_to_use, "--",
-            #         "aws", "ec2-instance-connect", "open-tunnel",
-            #         "--instance-id", instance_id,
-            #         "--remote-port", "3389",
-            #         "--local-port", str(local_port)
-            #     ]
-            # else:
-            #     command = [
-            #         "aws", "ec2-instance-connect", "open-tunnel",
-            #         "--instance-id", instance_id,
-            #         "--remote-port", "3389",
-            #         "--local-port", str(local_port),
-            #         "--profile", profile_to_use # Use the specified profile
-            #     ]
-            
+
             command = [
                 "aws", "ec2-instance-connect", "open-tunnel",
                 "--instance-id", instance_id,
                 "--remote-port", "3389",
                 "--local-port", str(local_port),
-                "--region", "us-east-2",
                 "--profile", profile_to_use # Use the specified profile
             ]
+            
+            # command = [
+            #     "aws", "ec2-instance-connect", "open-tunnel",
+            #     "--instance-id", instance_id,
+            #     "--remote-port", "3389",
+            #     "--local-port", str(local_port),
+            #     "--region", "us-east-2",
+            #     "--profile", profile_to_use # Use the specified profile
+            # ]
 
             # Start the tunnel process
             self.tunnel_process = subprocess.Popen(
@@ -634,7 +597,7 @@ class AwsRdpConnect:
             self.root.after(0, lambda: self.status_var.set(f"Connected to {instance_id} on port {local_port}"))
 
         except FileNotFoundError:
-            cli_name_for_error = "Granted CLI or AWS CLI" if is_granted_mode else "AWS CLI"
+            cli_name_for_error = "AWS CLI"
             self.root.after(0, lambda: self.status_var.set(f"{cli_name_for_error} not found. Please ensure it's installed and in your PATH."))
             self.root.after(0, lambda: messagebox.showerror("Error", f"{cli_name_for_error} not found. Please ensure it's installed and in your PATH."))
         except Exception as e:
