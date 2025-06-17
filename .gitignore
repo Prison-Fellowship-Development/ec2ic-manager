@@ -1,0 +1,8 @@
+# Build artifacts
+build/
+dist/
+*.dmg
+*.icns
+*.ico
+*.app
+*.spec
