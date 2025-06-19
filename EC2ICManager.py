@@ -153,7 +153,7 @@ class AwsRdpConnect:
         """Auto-detect the RDP client based on the platform"""
         system = platform.system()
         if system == "Windows":
-            self.settings["rdp_client"] = "mstsc.exe"
+            self.settings["rdp_client"] = "C:/Windows/System32/mstsc.exe"
         elif system == "Darwin":  # macOS
             # For macOS, just set the app name instead of the full path
             # Check for Microsoft Remote Desktop
