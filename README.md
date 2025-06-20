@@ -72,11 +72,11 @@ Pull requests and issues are welcome! Please open an issue to discuss any change
 
 ## Build Steps  
 
-1. Clone repo
-2. Install Python app packager (py2app for MacOS and pyinstaller for Windows)
-3. Install requirements
-4. Run package command:
-   a. For MacOS: python setup.py py2app (You may need to add the "--deep" option to the _dosign function in ./venv/lib/python3.13/site-packages/py2app/util.py)
-   b. For Windows: pyinstaller --onefile --windowed --icon=icon.ico EC2ICManager.py
+1. Clone repo  
+2. Install Python app packager (py2app for MacOS and pyinstaller for Windows)  
+3. Install requirements  
+4. Run package command:  
+   a. For MacOS: python setup.py py2app (You may need to add the "--deep" option to the _dosign function in ./venv/lib/python3.13/site-packages/py2app/util.py)  
+   b. For Windows: pyinstaller --onefile --windowed --icon=icon.ico EC2ICManager.py  
 
 ---
