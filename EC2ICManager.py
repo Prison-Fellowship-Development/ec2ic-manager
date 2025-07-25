@@ -29,13 +29,15 @@ class AwsRdpConnect:
         self.aws_profiles = []
         self.ec2_instances = []
         self.current_profile = None
+        self.current_region = None
         self.tunnel_process = None
         self.config_dir = os.path.join(str(Path.home()), ".aws_rdp_connect")
         self.config_file = os.path.join(self.config_dir, "config.json")
         self.settings = {
             "rdp_client": "",
             "default_profile": "",
-            "saved_instances": {},
+            "default_region": "us-east-1",
+            "saved_instances": {},  # Will store as {profile: {region: [instances]}}
             "local_port_range": [9800, 9900]
         }
 
@@ -57,6 +59,13 @@ class AwsRdpConnect:
         self.profile_combo.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
         self.profile_combo.bind("<<ComboboxSelected>>", self.on_profile_selected)
 
+        # AWS Region selection
+        ttk.Label(self.controls_frame, text="AWS Region:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
+        self.region_var = tk.StringVar()
+        self.region_combo = ttk.Combobox(self.controls_frame, textvariable=self.region_var, state="readonly", width=30)
+        self.region_combo.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        self.region_combo.bind("<<ComboboxSelected>>", self.on_region_selected)
+
         # Refresh button
         self.refresh_button = ttk.Button(self.controls_frame, text="Refresh", command=self.refresh_profiles)
         self.refresh_button.grid(row=0, column=2, padx=5, pady=5)
@@ -70,7 +79,7 @@ class AwsRdpConnect:
         self.instances_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         # Create a tree view for instances
-        self.tree_columns = ("Name", "Instance ID", "State", "Type", "Private IP")
+        self.tree_columns = ("Name", "Instance ID", "State", "Type", "Private IP", "Region")
         self.tree = ttk.Treeview(self.instances_frame, columns=self.tree_columns, show="headings")
 
         for col in self.tree_columns:
@@ -119,6 +128,7 @@ class AwsRdpConnect:
 
         # Initialize
         self.refresh_profiles()
+        self.refresh_regions()
         # Load saved instances on startup
         self.load_saved_instances()
 
@@ -127,19 +137,28 @@ class AwsRdpConnect:
             self.profile_var.set(self.settings["default_profile"])
             self.on_profile_selected(None)
 
+        # Set default region if available
+        if self.settings["default_region"] and self.settings["default_region"] in self.get_available_regions():
+            self.region_var.set(self.settings["default_region"])
+            self.on_region_selected(None)
+
     def load_settings(self):
         """Load settings from the config file"""
         try:
             os.makedirs(self.config_dir, exist_ok=True)
             if os.path.exists(self.config_file):
                 with open(self.config_file, 'r') as f:
-                    self.settings = json.load(f)
+                    loaded_settings = json.load(f)
+                    # Merge with default settings to ensure all keys exist
+                    self.settings.update(loaded_settings)
             else:
                 # First time setup, determine default RDP client
                 self.detect_rdp_client()
                 self.save_settings()
         except Exception as e:
             messagebox.showwarning("Settings Error", f"Failed to load settings: {str(e)}")
+            # Ensure default settings are available even if loading fails
+            self.detect_rdp_client()
 
     def save_settings(self):
         """Save settings to the config file"""
@@ -214,6 +233,38 @@ class AwsRdpConnect:
         self.current_profile = self.profile_var.get()
         self.status_var.set(f"Selected profile: {self.current_profile}")
 
+    def get_available_regions(self):
+        """Get list of available AWS regions"""
+        regions = [
+            "us-east-1", "us-east-2", "us-west-1", "us-west-2",
+            "af-south-1", "ap-east-1", "ap-south-1", "ap-northeast-1",
+            "ap-northeast-2", "ap-northeast-3", "ap-southeast-1", "ap-southeast-2",
+            "ca-central-1", "eu-central-1", "eu-west-1", "eu-west-2",
+            "eu-west-3", "eu-north-1", "eu-south-1", "me-south-1",
+            "sa-east-1", "us-gov-east-1", "us-gov-west-1"
+        ]
+        return regions
+
+    def on_region_selected(self, event):
+        """Handle region selection"""
+        self.current_region = self.region_var.get()
+        self.status_var.set(f"Selected region: {self.current_region}")
+
+    def refresh_regions(self):
+        """Refresh the AWS regions dropdown"""
+        regions = self.get_available_regions()
+        self.region_combo['values'] = regions
+        
+        # Set default region if not already set
+        if not self.region_var.get() or self.region_var.get() not in regions:
+            default_region = self.settings.get("default_region", "us-east-1")
+            if default_region in regions:
+                self.region_var.set(default_region)
+                self.current_region = default_region
+            else:
+                self.region_var.set(regions[0])
+                self.current_region = regions[0]
+
     def aws_sso_login(self):
         """Perform AWS SSO login."""
         if not self.current_profile:
@@ -261,7 +312,11 @@ class AwsRdpConnect:
             messagebox.showwarning("Warning", "Please select an AWS profile first")
             return
 
-        self.status_var.set(f"Loading instances for profile {self.current_profile}...")
+        if not self.current_region:
+            messagebox.showwarning("Warning", "Please select an AWS region first")
+            return
+
+        self.status_var.set(f"Loading instances for profile {self.current_profile} in region {self.current_region}...")
         self.load_button.configure(state="disabled")
 
         # Clear existing data
@@ -270,7 +325,7 @@ class AwsRdpConnect:
 
         def load_thread():
             command = []
-            command = ["aws", "ec2", "describe-instances", "--profile", self.current_profile]
+            command = ["aws", "ec2", "describe-instances", "--region", self.current_region, "--profile", self.current_profile]
 
             # command = ["aws", "ec2", "describe-instances", "--region", "us-east-2", "--profile", self.current_profile]
             
@@ -303,7 +358,10 @@ class AwsRdpConnect:
                                     name = tag.get("Value", "")
                                     break
 
-                            instances.append((name, instance_id, instance_state, instance_type, private_ip))
+                            # Use the current region for this instance
+                            region = self.current_region
+
+                            instances.append((name, instance_id, instance_state, instance_type, private_ip, region))
 
                     # Update UI from the main thread
                     self.root.after(0, lambda: self.update_instances_tree(instances))
@@ -334,7 +392,7 @@ class AwsRdpConnect:
         for instance in instances:
             self.tree.insert("", tk.END, values=instance)
 
-        self.status_var.set(f"Loaded {len(instances)} EC2 instances")
+        self.status_var.set(f"Loaded {len(instances)} EC2 instances from {self.current_region}")
 
     def get_selected_instance(self):
         """Get the selected instance from the tree"""
@@ -346,20 +404,24 @@ class AwsRdpConnect:
         return values
 
     def load_saved_instances(self):
-        """Load saved instances into the tree, associating them with their profile"""
+        """Load saved instances into the tree, associating them with their profile and region"""
         # Clear existing data
         for item in self.tree.get_children():
             self.tree.delete(item)
 
         # Add saved instances to tree
         # Iterate through saved instances by profile
-        for profile, instances in self.settings.get("saved_instances", {}).items():
+        for profile, regions_data in self.settings.get("saved_instances", {}).items():
              # Ensure the profile exists in the current AWS config before displaying
             if profile in self.aws_profiles:
-                for instance in instances:
-                    # Insert the instance into the treeview and add the profile as a tag
-                    # We add the profile as a tag so we can retrieve it later when connecting
-                    self.tree.insert("", tk.END, values=instance, tags=(profile,))
+                for region, instances in regions_data.items():
+                    if region in self.get_available_regions(): # Ensure the region is still valid
+                        for instance in instances:
+                            # Insert the instance into the treeview and add the profile and region as tags
+                            # We add both profile and region as tags so we can retrieve them later when connecting
+                            self.tree.insert("", tk.END, values=instance, tags=(profile, region))
+                    else:
+                        print(f"Warning: Region '{region}' for saved instances not found in AWS config. Skipping.")
             else:
                 print(f"Warning: Profile '{profile}' for saved instances not found in AWS config. Skipping.")
 
@@ -375,20 +437,28 @@ class AwsRdpConnect:
             messagebox.showwarning("Warning", "Please select an AWS profile first")
             return
 
-        # Initialize the profile's saved instances list if needed
-        if self.current_profile not in self.settings["saved_instances"]:
-            self.settings["saved_instances"][self.current_profile] = []
-
-        # Check if already saved for this profile
-        if selected_instance in self.settings["saved_instances"][self.current_profile]:
-            messagebox.showinfo("Info", "This instance is already saved for the current profile.")
+        if not self.current_region:
+            messagebox.showwarning("Warning", "Please select an AWS region first")
             return
 
-        # Add to saved instances for the current profile
-        self.settings["saved_instances"][self.current_profile].append(selected_instance)
+        # Initialize the profile's saved instances list if needed
+        if self.current_profile not in self.settings["saved_instances"]:
+            self.settings["saved_instances"][self.current_profile] = {}
+
+        # Initialize the region's saved instances list if needed
+        if self.current_region not in self.settings["saved_instances"][self.current_profile]:
+            self.settings["saved_instances"][self.current_profile][self.current_region] = []
+
+        # Check if already saved for this profile and region
+        if selected_instance in self.settings["saved_instances"][self.current_profile][self.current_region]:
+            messagebox.showinfo("Info", "This instance is already saved for the current profile and region.")
+            return
+
+        # Add to saved instances for the current profile and region
+        self.settings["saved_instances"][self.current_profile][self.current_region].append(selected_instance)
         self.save_settings()
 
-        messagebox.showinfo("Success", f"Instance {selected_instance[0]} ({selected_instance[1]}) saved for profile {self.current_profile}")
+        messagebox.showinfo("Success", f"Instance {selected_instance[0]} ({selected_instance[1]}) saved for profile {self.current_profile} in region {self.current_region}")
 
         # Refresh the treeview to show the newly saved instance with its tag
         self.load_saved_instances()
@@ -414,17 +484,25 @@ class AwsRdpConnect:
         instance_id = selected_instance[1]
         instance_name = selected_instance[0]
 
-        # Determine the profile to use for connection
-        # If the item has a tag, it's a saved instance, use the tagged profile
-        # Otherwise, use the currently selected profile
+        # Determine the profile and region to use for connection
+        # If the item has tags, it's a saved instance, use the tagged profile and region
+        # Otherwise, use the currently selected profile and region
         connection_profile = self.current_profile # Default to current profile
+        connection_region = self.current_region # Default to current region
         if tags:
-            # Assuming the first tag is the profile name for saved instances
-            saved_profile = tags[0] if tags else None
+            # Assuming the first tag is the profile name and second is the region for saved instances
+            saved_profile = tags[0] if len(tags) > 0 else None
+            saved_region = tags[1] if len(tags) > 1 else None
+            
             if saved_profile and saved_profile in self.aws_profiles: # Ensure the saved profile is still valid
                  connection_profile = saved_profile
             elif saved_profile:
                  messagebox.showwarning("Profile Not Found", f"Saved profile '{saved_profile}' not found in your AWS configuration. Using current profile '{self.current_profile}' instead.")
+            
+            if saved_region and saved_region in self.get_available_regions(): # Ensure the saved region is still valid
+                 connection_region = saved_region
+            elif saved_region:
+                 messagebox.showwarning("Region Not Found", f"Saved region '{saved_region}' not found in your AWS configuration. Using current region '{self.current_region}' instead.")
 
 
         # Check if the connection profile is different from the current profile
@@ -466,16 +544,16 @@ class AwsRdpConnect:
         self.status_var.set(f"Connecting to {instance_name} ({instance_id}) using profile {self.current_profile}...")
 
         # Create and manage the tunnel in a separate thread
-        # Pass the current profile to the tunnel setup
+        # Pass the current profile and region to the tunnel setup
         tunnel_thread = threading.Thread(
             target=self.setup_and_connect,
-            args=(instance_id, local_port, self.current_profile) # Pass the profile
+            args=(instance_id, local_port, connection_profile, connection_region) # Pass the profile and region
         )
         tunnel_thread.daemon = True
         tunnel_thread.start()
 
 
-    def setup_and_connect(self, instance_id, local_port, profile_to_use):
+    def setup_and_connect(self, instance_id, local_port, profile_to_use, region_to_use):
         """Set up the tunnel and launch RDP client using the specified profile"""
         try:
             # Set up the tunnel
@@ -488,7 +566,8 @@ class AwsRdpConnect:
                 "--instance-id", instance_id,
                 "--remote-port", "3389",
                 "--local-port", str(local_port),
-                "--profile", profile_to_use # Use the specified profile
+                "--profile", profile_to_use,
+                "--region", region_to_use # Use the specified region
             ]
             
             # command = [
@@ -641,10 +720,16 @@ class AwsRdpConnect:
         default_profile_combo = ttk.Combobox(general_frame, textvariable=default_profile_var, values=self.aws_profiles, state="readonly")
         default_profile_combo.grid(row=1, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
 
+        # Default region
+        ttk.Label(general_frame, text="Default Region:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        default_region_var = tk.StringVar(value=self.settings.get("default_region", "us-east-1"))
+        default_region_combo = ttk.Combobox(general_frame, textvariable=default_region_var, values=self.get_available_regions(), state="readonly")
+        default_region_combo.grid(row=2, column=1, sticky=tk.W+tk.E, padx=5, pady=5)
+
         # Port range
-        ttk.Label(general_frame, text="Local Port Range:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
+        ttk.Label(general_frame, text="Local Port Range:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
         port_frame = ttk.Frame(general_frame)
-        port_frame.grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
+        port_frame.grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
 
         min_port_var = tk.IntVar(value=self.settings.get("local_port_range", [9800, 9900])[0])
         max_port_var = tk.IntVar(value=self.settings.get("local_port_range", [9800, 9900])[1])
@@ -665,6 +750,7 @@ class AwsRdpConnect:
         save_button = ttk.Button(buttons_frame, text="Save", command=lambda: self.save_settings_dialog(
             rdp_client_var.get(),
             default_profile_var.get(),
+            default_region_var.get(),
             min_port_var.get(),
             max_port_var.get(),
             settings_window
@@ -686,7 +772,7 @@ class AwsRdpConnect:
         if filename:
             var.set(filename)
 
-    def save_settings_dialog(self, rdp_client, default_profile, min_port, max_port, window):
+    def save_settings_dialog(self, rdp_client, default_profile, default_region, min_port, max_port, window):
         """Save settings from the dialog"""
         try:
             # Validate port range
@@ -697,6 +783,7 @@ class AwsRdpConnect:
             # Update settings
             self.settings["rdp_client"] = rdp_client
             self.settings["default_profile"] = default_profile
+            self.settings["default_region"] = default_region
             self.settings["local_port_range"] = [min_port, max_port]
 
             # Save to file

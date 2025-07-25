@@ -7,10 +7,12 @@
 ## Features
 
 - 📁 Loads AWS profiles from `~/.aws/config`
+- 🌍 Supports multiple AWS regions for instance discovery
 - 🔐 Authenticates to the selected profile using the AWS CLI
 - 💻 Lists EC2 instances from the chosen AWS account/region
 - 🔌 Initiates an EC2 Instance Connect session and assigns a random local port
 - 🚀 Automatically launches your default RDP client to connect
+- 💾 Saves favorite instances for quick access across profiles and regions
 - 🪟 Available for both macOS (.dmg) and Windows (.exe)
 
 ---
@@ -43,8 +45,11 @@
 1. Ensure you have valid AWS credentials set up in `~/.aws/config` or via the AWS CLI.
 2. Open **EC2 Instance Connect Manager**.
 3. Select the AWS profile you'd like to use.
-4. Browse available EC2 instances.
-5. Click **Connect** — your default RDP client will open once the session is established.
+4. Select the AWS region you'd like to browse for instances.
+5. Click **Login** to authenticate with AWS SSO (if required).
+6. Click **Load Instances** to browse available EC2 instances in the selected region.
+7. Click **Connect** — your default RDP client will open once the session is established.
+8. Use **Save Instance** to bookmark frequently accessed instances for quick access.
 
 ---
 
