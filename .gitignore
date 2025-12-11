@@ -1,8 +1,6 @@
 # Build artifacts
 build/
 dist/
+venv/
 *.dmg
-*.icns
-*.ico
 *.app
-*.spec

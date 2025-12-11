@@ -7,7 +7,7 @@ Usage:
 
 from setuptools import setup
 
-APP = ['EC2ICManager.py']
+APP = ['AWSConnect.py']
 DATA_FILES = []
 OPTIONS = {
     'iconfile': 'icon.icns',   # Optional: your .icns file for a Mac icon
